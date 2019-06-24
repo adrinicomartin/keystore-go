@@ -113,6 +113,7 @@ func (ksd *keyStoreDecoder) readCertificate(version uint32) (*Certificate, error
 		certType = defaultCertificateType
 	case version02:
 		readCertType, err := ksd.readString()
+		
 		if err != nil {
 			return nil, err
 		}
@@ -160,6 +161,7 @@ func (ksd *keyStoreDecoder) readPrivateKeyEntry(version uint32, password []byte)
 		}
 		chain = append(chain, *cert)
 	}
+
 	plainPrivateKeyContent, err := recoverKey(encodedPrivateKeyContent, password)
 	if err != nil {
 		return nil, err
@@ -189,9 +191,14 @@ func (ksd *keyStoreDecoder) readPrivateKeyEntryNoPass(version uint32) (*PrivateK
 	for i := certCount; i > 0; i-- {
 		cert, err := ksd.readCertificate(version)
 		if err != nil {
-			return nil, err
+			if err.Error() == ErrIncorrectTag.Error() {
+				ksd.errors = ksd.errors + "keystore: invalid keystore format\n"
+			} else {
+				return nil, err
+			}
+		} else {
+			chain = append(chain, *cert)
 		}
-		chain = append(chain, *cert)
 	}
 	creationDateTime := millisecondsToTime(int64(creationDateTimeStamp))
 	privateKeyEntry := PrivateKeyEntry{
