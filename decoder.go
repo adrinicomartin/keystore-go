@@ -31,6 +31,7 @@ type keyStoreDecoder struct {
 	r  io.Reader
 	b  [bufSize]byte
 	md hash.Hash
+	errors string
 }
 
 func (ksd *keyStoreDecoder) readUint16() (uint16, error) {
@@ -174,6 +175,34 @@ func (ksd *keyStoreDecoder) readPrivateKeyEntry(version uint32, password []byte)
 	return &privateKeyEntry, nil
 }
 
+
+func (ksd *keyStoreDecoder) readPrivateKeyEntryNoPass(version uint32) (*PrivateKeyEntry, error) {
+	creationDateTimeStamp, err := ksd.readUint64()
+	if err != nil {
+		return nil, err
+	}
+	certCount, err := ksd.readUint32()
+	if err != nil {
+		return nil, err
+	}
+	var chain []Certificate
+	for i := certCount; i > 0; i-- {
+		cert, err := ksd.readCertificate(version)
+		if err != nil {
+			return nil, err
+		}
+		chain = append(chain, *cert)
+	}
+	creationDateTime := millisecondsToTime(int64(creationDateTimeStamp))
+	privateKeyEntry := PrivateKeyEntry{
+		Entry: Entry{
+			CreationDate: creationDateTime,
+		},
+		CertChain: chain,
+	}
+	return &privateKeyEntry, nil
+}
+
 func (ksd *keyStoreDecoder) readTrustedCertificateEntry(version uint32) (*TrustedCertificateEntry, error) {
 	creationDateTimeStamp, err := ksd.readUint64()
 	if err != nil {
@@ -219,6 +248,34 @@ func (ksd *keyStoreDecoder) readEntry(version uint32, password []byte) (string, 
 	return "", nil, ErrIncorrectTag
 }
 
+
+func (ksd *keyStoreDecoder) readEntryNoPass(version uint32) (string, interface{}, error) {
+	tag, err := ksd.readUint32()
+	if err != nil {
+		return "", nil, err
+	}
+	alias, err := ksd.readString()
+	if err != nil {
+		return "", nil, err
+	}
+	switch tag {
+	case privateKeyTag:
+		entry, err := ksd.readPrivateKeyEntryNoPass(version)
+		if err != nil {
+			return "", nil, err
+		}
+		return alias, entry, nil
+	case trustedCertificateTag:
+		entry, err := ksd.readTrustedCertificateEntry(version)
+		if err != nil {
+			return "", nil, err
+		}
+		return alias, entry, nil
+	}
+	return "", nil, ErrIncorrectTag
+}
+
+
 // Decode reads keystore representation from r then decrypts and check signature using password
 // It is strongly recommended to fill password slice with zero after usage
 func Decode(r io.Reader, password []byte) (KeyStore, error) {
@@ -255,6 +312,52 @@ func Decode(r io.Reader, password []byte) (KeyStore, error) {
 	keyStore := KeyStore{}
 	for entitiesCount := count; entitiesCount > 0; entitiesCount-- {
 		alias, entry, err := ksd.readEntry(version, password)
+		if err != nil {
+			return nil, err
+		}
+		keyStore[alias] = entry
+	}
+
+	computedDigest := ksd.md.Sum(nil)
+	actualDigest, err := ksd.readBytes(uint32(ksd.md.Size()))
+	for i := 0; i < len(actualDigest); i++ {
+		if actualDigest[i] != computedDigest[i] {
+			return nil, ErrInvalidDigest
+		}
+	}
+
+	return keyStore, nil
+}
+
+// DecodeNoPass reads keystore representation from r
+func DecodeNoPass(r io.Reader) (KeyStore, error) {
+	ksd := keyStoreDecoder{
+		r:  r,
+		md: sha1.New(),
+	}
+	_, err := ksd.md.Write(whitenerMessage)
+	if err != nil {
+		return nil, err
+	}
+
+	readMagic, err := ksd.readUint32()
+	if err != nil {
+		return nil, err
+	}
+	if readMagic != magic {
+		return nil, ErrIncorrectMagic
+	}
+	version, err := ksd.readUint32()
+	if err != nil {
+		return nil, err
+	}
+	count, err := ksd.readUint32()
+	if err != nil {
+		return nil, err
+	}
+	keyStore := KeyStore{}
+	for entitiesCount := count; entitiesCount > 0; entitiesCount-- {
+		alias, entry, err := ksd.readEntryNoPass(version)
 		if err != nil {
 			return nil, err
 		}

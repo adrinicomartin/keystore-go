@@ -3,7 +3,7 @@
 package main
 
 import (
-	"github.com/pavel-v-chernykh/keystore-go"
+	"github.com/adrinicomartin/keystore-go"
 	"log"
 	"os"
 	"reflect"

@@ -5,7 +5,7 @@ package main
 import (
 	"crypto/x509"
 	"encoding/pem"
-	"github.com/pavel-v-chernykh/keystore-go"
+	"github.com/adrinicomartin/keystore-go"
 	"io/ioutil"
 	"log"
 	"os"
