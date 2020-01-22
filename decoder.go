@@ -28,9 +28,9 @@ var ErrIncorrectPrivateKey = errors.New("keystore: invalid private key format")
 var ErrInvalidDigest = errors.New("keystore: invalid digest")
 
 type keyStoreDecoder struct {
-	r  io.Reader
-	b  [bufSize]byte
-	md hash.Hash
+	r      io.Reader
+	b      [bufSize]byte
+	md     hash.Hash
 	errors string
 }
 
@@ -113,7 +113,7 @@ func (ksd *keyStoreDecoder) readCertificate(version uint32) (*Certificate, error
 		certType = defaultCertificateType
 	case version02:
 		readCertType, err := ksd.readString()
-		
+
 		if err != nil {
 			return nil, err
 		}
@@ -177,12 +177,20 @@ func (ksd *keyStoreDecoder) readPrivateKeyEntry(version uint32, password []byte)
 	return &privateKeyEntry, nil
 }
 
-
 func (ksd *keyStoreDecoder) readPrivateKeyEntryNoPass(version uint32) (*PrivateKeyEntry, error) {
 	creationDateTimeStamp, err := ksd.readUint64()
 	if err != nil {
 		return nil, err
 	}
+	privKeyLen, err := ksd.readUint32()
+	if err != nil {
+		return nil, err
+	}
+	_, err = ksd.readBytes(privKeyLen)
+	if err != nil {
+		return nil, err
+	}
+
 	certCount, err := ksd.readUint32()
 	if err != nil {
 		return nil, err
@@ -255,7 +263,6 @@ func (ksd *keyStoreDecoder) readEntry(version uint32, password []byte) (string, 
 	return "", nil, ErrIncorrectTag
 }
 
-
 func (ksd *keyStoreDecoder) readEntryNoPass(version uint32) (string, interface{}, error) {
 	tag, err := ksd.readUint32()
 	if err != nil {
@@ -281,7 +288,6 @@ func (ksd *keyStoreDecoder) readEntryNoPass(version uint32) (string, interface{}
 	}
 	return "", nil, ErrIncorrectTag
 }
-
 
 // Decode reads keystore representation from r then decrypts and check signature using password
 // It is strongly recommended to fill password slice with zero after usage
@@ -369,14 +375,6 @@ func DecodeNoPass(r io.Reader) (KeyStore, error) {
 			return nil, err
 		}
 		keyStore[alias] = entry
-	}
-
-	computedDigest := ksd.md.Sum(nil)
-	actualDigest, err := ksd.readBytes(uint32(ksd.md.Size()))
-	for i := 0; i < len(actualDigest); i++ {
-		if actualDigest[i] != computedDigest[i] {
-			return nil, ErrInvalidDigest
-		}
 	}
 
 	return keyStore, nil
